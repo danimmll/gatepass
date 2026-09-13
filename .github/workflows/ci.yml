@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  spring-boot-4:
     name: Java ${{ matrix.java }}, Spring Boot ${{ matrix.boot }}
     runs-on: ubuntu-latest
     strategy:
@@ -25,4 +25,23 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
       - name: Build and test
-        run: ./mvnw -B -ntp verify -Dspring-boot.version=${{ matrix.boot }}
+        run: ./mvnw -B -ntp verify -pl '!gatepass-spring-boot3-starter' -Dspring-boot4.version=${{ matrix.boot }}
+
+  spring-boot-3:
+    name: Java ${{ matrix.java }}, Spring Boot 3.5
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '17', '21', '25' ]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - name: Build and test
+        run: >-
+          ./mvnw -B -ntp verify -Pboot3
+          -pl gatepass-test-support,gatepass-core,gatepass-spring-boot3-starter,integration-tests/servlet,integration-tests/reactive,integration-tests/gateway,integration-tests/gateway-mvc

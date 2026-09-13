@@ -1,7 +1,7 @@
 # Gatepass
 
 [![CI](https://github.com/danimmll/gatepass/actions/workflows/ci.yml/badge.svg)](https://github.com/danimmll/gatepass/actions/workflows/ci.yml)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.danimmll/gatepass-spring-boot-starter)](https://central.sonatype.com/artifact/io.github.danimmll/gatepass-spring-boot-starter)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.danimmll/gatepass-core)](https://central.sonatype.com/namespace/io.github.danimmll)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 **Prove that a request came from inside your system, and from which service.** Gatepass puts a short-lived,
@@ -34,16 +34,24 @@ secret on every request. This library replaces all of it and fixes what the copi
 - **It signs the request the service actually receives**, after `StripPrefix`, `RewritePath` and load balancing.
 - **Clients cannot forge it.** The gateway strips the header from every route before forwarding.
 - **Keys rotate without downtime.**
-- **Passes never leak to third parties.** The gateway only signs `lb://` routes by default, Feign only signs the
+- **Passes never leak to third parties.** Gateways only sign load-balanced routes by default, Feign only signs the
   clients you name, and the `RestClient` and `WebClient` hooks are only added where you add them.
 - **It can refuse plain HTTP**, looking at the connection itself rather than at headers a proxy, or an attacker,
   could set.
 - **A bad configuration stops the application at startup** with a message that names the property to fix, never
   with a 403 in production.
+- **It fits the stack you have:** Spring Boot 3.5 or 4, Spring Cloud Gateway WebFlux or MVC, servlet or WebFlux
+  services, Feign, `RestClient` or `WebClient`.
 
 ## Quick start
 
-Requires Java 17+ and Spring Boot 4.0 or 4.1.
+Requires Java 17 or later. Pick the artifact for your application:
+
+| Your application | Artifact |
+|---|---|
+| Spring Boot 4.0 or 4.1 | `io.github.danimmll:gatepass-spring-boot-starter` |
+| Spring Boot 3.5 | `io.github.danimmll:gatepass-spring-boot3-starter` |
+| Plain Java, or another framework | `io.github.danimmll:gatepass-core` |
 
 ```xml
 <dependency>
@@ -67,7 +75,7 @@ gatepass:
 
 That is the whole setup for the two main cases:
 
-- **In a Spring Cloud Gateway** it signs every request forwarded to an `lb://` route.
+- **In a Spring Cloud Gateway**, WebFlux or MVC, it signs every request forwarded to a load-balanced (`lb://`) route.
 - **In a servlet or WebFlux service** it rejects every request without a valid pass, with a `403` and an
   [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) body, before Spring Security or your controllers see it.
   `/actuator/health/**` stays open for health checks.
@@ -110,10 +118,10 @@ Every one of them signs again on each retry, so retries and single-use passes ge
 With a shared secret, everyone who holds it can issue passes. With Ed25519 key pairs, each service signs with its
 own private key and the others only hold its public key: they can check its passes, not make them.
 
-**1. Generate a pair per service.** The starter jar prints one:
+**1. Generate a pair per service.** The core jar prints one:
 
 ```bash
-java -jar gatepass-spring-boot-starter-0.1.0.jar
+java -jar gatepass-core-0.1.0.jar
 ```
 
 ```
@@ -172,6 +180,18 @@ Order order(@PathVariable long id, @RequestAttribute(InboundRules.CALLER_ATTRIBU
 **Moving from a shared secret.** A service accepts every pass it has a key for. Add `trusted-services` everywhere
 while keeping `secrets`, give each sender its `private-key`, and remove `secrets` once nothing sends HMAC passes.
 
+## Spring Cloud Gateway, WebFlux or MVC
+
+Both gateways are supported, with the same properties.
+
+- **Gateway Server WebFlux** signs in a global filter that runs right after load balancing.
+- **Gateway Server MVC** signs in the last request headers filter of its proxy, and rebuilds the query string exactly
+  as the proxy does before sending. The load balancer marks the requests it routes, so `lb://` routes are the ones
+  signed by default here too.
+
+`gatepass.gateway.routes` selects routes by id instead. In Gateway MVC, a route defined in properties always has an
+id at that point; a route defined in Java has one only if it uses the `routeId` filter.
+
 ## Signing the body
 
 ```yaml
@@ -183,13 +203,14 @@ gatepass:
     require-signed-body: true   # optional: receivers refuse passes that do not cover the body
 ```
 
-With `body.enabled`, the gateway, Feign, `RestClient` and `WebClient` add the SHA-256 of the body to the pass.
+With `body.enabled`, both gateways, Feign, `RestClient` and `WebClient` add the SHA-256 of the body to the pass.
 Receivers always check the body of a pass that covers one, whatever their own settings.
 
 It has a cost, which is why it is off by default: a body has to be held in memory to be signed and to be checked.
 
-- **The gateway reads each signed body into memory** before forwarding it, up to `max-size`, and answers `413` to
-  anything larger instead of forwarding it unsigned. Streaming uploads through the gateway stop streaming.
+- **A gateway reads each signed body into memory** before forwarding it, up to `max-size`, and answers `413` to
+  anything larger instead of forwarding it unsigned. Streaming uploads through the gateway stop streaming. In Gateway
+  MVC, a servlet filter that lets the body be read once and forwarded from memory is registered for this.
 - **Clients fail the request** if the body is over `max-size`.
 - **Receivers read the body only once the pass itself has been verified**, so nobody without a genuine pass can make
   them buffer anything, and answer `413` beyond `max-size`. The body is then handed to your application from memory;
@@ -201,7 +222,8 @@ It has a cost, which is why it is off by default: a body has to be held in memor
 
 A valid pass is remembered until it expires, and the same pass is rejected as `REPLAYED` from then on. It is on by
 default and needs nothing else as long as each service runs a single instance. Only passes whose signature has been
-verified are remembered, so memory grows with legitimate traffic alone: at most a minute's worth of requests.
+verified are remembered, so memory grows with legitimate traffic alone: about 31 bytes per pass, for at most a
+minute's worth of requests.
 
 **Several instances of the same service** each remember their own passes, so a copied pass could still be sent to
 another instance. Give them a shared store by defining a `ReplayGuard` bean. With Redis, for example:
@@ -214,9 +236,9 @@ ReplayGuard sharedReplayGuard(StringRedisTemplate redis) {
 }
 ```
 
-**Retries.** Feign, `RestClient`, `WebClient` and the gateway's `Retry` filter all go through Gatepass again and get a
-fresh pass. An HTTP library that silently resends the exact same bytes after a dropped connection would get a `403`
-if the first attempt had arrived. If that happens to you, set `gatepass.replay-protection.enabled=false`.
+**Retries.** Feign, `RestClient`, `WebClient` and the retry filters of both gateways all go through Gatepass again and
+get a fresh pass. An HTTP library that silently resends the exact same bytes after a dropped connection would get a
+`403` if the first attempt had arrived. If that happens to you, set `gatepass.replay-protection.enabled=false`.
 
 ## TLS
 
@@ -306,7 +328,7 @@ def gatepass(secret: str, method: str, raw_path: str, raw_query: str = "", body:
     return ".".join(["v1", "hs256", key_id, issued_at, nonce, digest, signature])
 ```
 
-In Java, `Gatepass` has no Spring dependency and can issue and verify passes anywhere:
+In Java, `gatepass-core` has no Spring dependency and can issue and verify passes anywhere:
 
 ```java
 Gatepass gatepass = Gatepass.builder().secrets(secret).build();
@@ -361,13 +383,13 @@ A rotation applied on one side only shows up at debug level as `UNKNOWN_KEY` (se
 | `gatepass.inbound.require-signed-body` | `false` | Whether every pass must cover the body. Multipart requests are exempt. |
 | `gatepass.inbound.require-tls` | `false` | Whether requests must arrive over TLS on their own connection. |
 | `gatepass.inbound.filter-order` | `Ordered.HIGHEST_PRECEDENCE + 10` | The default runs before Spring Security. |
-| `gatepass.gateway.enabled` | `true` | Whether the gateway signs forwarded requests. |
-| `gatepass.gateway.routes` | every `lb://` route | Route ids to sign, or `*` for all. The incoming header is stripped from every route regardless. |
+| `gatepass.gateway.enabled` | `true` | Whether a gateway signs forwarded requests. |
+| `gatepass.gateway.routes` | every load-balanced route | Route ids to sign, or `*` for all. The incoming header is stripped from every route regardless. |
 | `gatepass.feign.clients` | | Names of the Feign clients that send a pass, or `*`. |
 
 Every piece is a regular bean that backs off if you define your own: `Gatepass`, `ReplayGuard`,
-`GatepassServletFilter`, `GatepassWebFilter`, `GatepassGatewayFilter`, `GatepassFeignRequestInterceptor`,
-`GatepassClientHttpRequestInterceptor` and `GatepassExchangeFilterFunction`.
+`GatepassServletFilter`, `GatepassWebFilter`, `GatepassGatewayFilter`, `GatepassGatewayMvcHeadersFilter`,
+`GatepassFeignRequestInterceptor`, `GatepassClientHttpRequestInterceptor` and `GatepassExchangeFilterFunction`.
 
 ## What Gatepass protects against, and what it doesn't
 
@@ -427,32 +449,50 @@ trigger them, so they point at something real.
 | `BODY_MISMATCH` | warn | The body is not the one that was signed: something in between changed it. |
 | `BODY_TOO_LARGE` | warn | A signed body over the receiver's `body.max-size`. Answered with `413`. |
 
+## Performance
+
+Measured with JMH on a laptop, Java 21. Your numbers will differ; the benchmarks are in the repository.
+
+| Per request | Time |
+|---|---|
+| Issue a pass (HMAC) | 1.3 µs |
+| Verify a pass (HMAC) | 1.2 µs |
+| Verify a pass and a 1 KB body (HMAC) | 2.3 µs |
+| Issue or verify a pass (Ed25519) | about 0.8 ms |
+| Remember a used pass | 0.6 µs, and 31 bytes until it expires |
+
+Ed25519 costs several hundred times an HMAC: that is the price of services that cannot sign for each other. Both are
+small next to a network hop.
+
 ## Compatibility
 
 | | |
 |---|---|
 | Java | 17, 21, 25 |
-| Spring Boot | 4.0.x, 4.1.x |
-| Spring Cloud | 2025.1.x |
-| Gateway | Spring Cloud Gateway Server WebFlux. Gateway Server MVC is not supported yet. |
+| Spring Boot | 4.0.x and 4.1.x with `gatepass-spring-boot-starter`; 3.5.x with `gatepass-spring-boot3-starter` |
+| Spring Cloud | 2025.1.x (Spring Boot 4), 2025.0.x (Spring Boot 3.5) |
+| Gateways | Spring Cloud Gateway Server WebFlux and Server MVC |
+| Services | Spring MVC and WebFlux |
 | Clients | OpenFeign, `RestClient`, `RestTemplate`, `WebClient`, HTTP interface clients |
 
-Ed25519 is part of the JDK since Java 15, so key pairs need no extra dependency.
-
-Spring Boot 3 is not supported: its open-source support ended in June 2026, and Spring advises against supporting
-Boot 3 and Boot 4 in the same artifact.
+Both starters are compiled from the same sources, each against its own Spring Boot line, as Spring advises rather than
+one artifact for both. CI tests every combination above, and a weekly job builds against the newest Spring Boot and
+Spring Cloud releases so a new version that breaks Gatepass shows up early.
 
 ## Building
 
 ```bash
-./mvnw verify
+./mvnw verify                  # everything, on Spring Boot 4
+./mvnw verify -Pboot3 -pl gatepass-test-support,gatepass-core,gatepass-spring-boot3-starter,integration-tests/servlet,integration-tests/reactive,integration-tests/gateway,integration-tests/gateway-mvc
 ```
 
-Besides the unit tests, three integration test modules start real applications: a Spring MVC service with Spring
-Security, Feign and `RestClient`; a WebFlux service with `WebClient`; and a Spring Cloud Gateway with load balancing,
-retries and route filters in front of a plain HTTP backend. They cover shared secrets and key pairs, signed bodies,
-replays, caller rules, and TLS with a certificate generated on the fly, including a forged `X-Forwarded-Proto`. CI
-runs everything on Java 17, 21 and 25 against Spring Boot 4.0 and 4.1.
+| Module | |
+|---|---|
+| `gatepass-core` | Issuing and verifying passes. Plain Java. |
+| `gatepass-spring-boot-starter` | The Spring integrations and auto-configuration, built against Spring Boot 4. |
+| `gatepass-spring-boot3-starter` | The same sources, built against Spring Boot 3.5. |
+| `integration-tests/*` | Real applications: a Spring MVC service with Spring Security, Feign and `RestClient`; a WebFlux service with `WebClient`; a WebFlux gateway and an MVC gateway with load balancing, retries and route filters in front of a plain HTTP backend. They cover shared secrets and key pairs, signed bodies, replays, caller rules, and TLS with a certificate generated on the fly, including a forged `X-Forwarded-Proto`. `-Pboot3` runs them on Spring Boot 3.5. |
+| `benchmarks` | `./mvnw -pl benchmarks -am package -DskipTests`, then `java -jar benchmarks/target/benchmarks.jar`. |
 
 ## License
 

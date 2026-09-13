@@ -44,7 +44,7 @@ public class GatepassProperties {
 
     /**
      * This service's own Ed25519 private key, which signs its passes in ed25519 mode. PKCS#8, as PEM or as base64 of
-     * the DER encoding. Generate a pair with: java -jar gatepass-spring-boot-starter.jar
+     * the DER encoding. Generate a pair with: java -jar gatepass-core.jar
      */
     private @Nullable String privateKey;
 
@@ -353,7 +353,7 @@ public class GatepassProperties {
     }
 
     /**
-     * Issuing passes from Spring Cloud Gateway.
+     * Issuing passes from Spring Cloud Gateway, WebFlux or MVC.
      */
     public static class Gateway {
 
@@ -363,7 +363,8 @@ public class GatepassProperties {
         private boolean enabled = true;
 
         /**
-         * IDs of the routes that get a pass. Empty means every route with an lb:// URI; * means all routes. The pass
+         * IDs of the routes that get a pass. Empty means every load-balanced route (lb:// URIs); * means all routes. In
+         * Gateway MVC, a route defined in Java has an id at that point only if it uses the routeId filter. The pass
          * header a client sends is stripped from every route regardless.
          */
         private List<String> routes = new ArrayList<>();

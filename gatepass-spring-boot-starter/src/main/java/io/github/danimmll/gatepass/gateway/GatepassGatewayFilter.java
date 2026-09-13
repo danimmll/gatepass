@@ -17,9 +17,8 @@ import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DataBufferLimitException;
-import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
@@ -31,6 +30,7 @@ import reactor.core.publisher.Mono;
 import io.github.danimmll.gatepass.BodySigning;
 import io.github.danimmll.gatepass.Gatepass;
 import io.github.danimmll.gatepass.RequestParts;
+import io.github.danimmll.gatepass.internal.BodyReader;
 import io.github.danimmll.gatepass.web.InboundRules;
 
 /**
@@ -48,8 +48,6 @@ public class GatepassGatewayFilter implements GlobalFilter, Ordered {
     public static final int ORDER = ReactiveLoadBalancerClientFilter.LOAD_BALANCER_CLIENT_FILTER_ORDER + 1;
 
     private static final Log logger = LogFactory.getLog(GatepassGatewayFilter.class);
-
-    private static final byte[] EMPTY = new byte[0];
 
     private final Gatepass gatepass;
 
@@ -100,12 +98,11 @@ public class GatepassGatewayFilter implements GlobalFilter, Ordered {
         if (!this.bodySigning.appliesTo((contentType != null) ? contentType.toString() : null)) {
             return chain.filter(forward(exchange, request, this.gatepass.issue(parts)));
         }
-        if (request.getHeaders().getContentLength() > this.bodySigning.maxBytes()) {
+        long declaredLength = request.getHeaders().getContentLength();
+        if (declaredLength > this.bodySigning.maxBytes()) {
             return tooLarge(exchange, parts);
         }
-        return DataBufferUtils.join(request.getBody(), this.bodySigning.maxBytesAsInt())
-                .map(buffer -> toBytes(buffer, this.bodySigning.maxBytesAsInt()))
-                .defaultIfEmpty(EMPTY)
+        return BodyReader.read(request.getBody(), this.bodySigning.maxBytes(), declaredLength)
                 .map(Optional::of)
                 .onErrorResume(DataBufferLimitException.class, ex -> Mono.just(Optional.empty()))
                 .flatMap(body -> body.isPresent()
@@ -145,25 +142,10 @@ public class GatepassGatewayFilter implements GlobalFilter, Ordered {
                     + this.bodySigning.maxBytes() + " bytes Gatepass signs (gatepass.body.max-size)");
         }
         ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.CONTENT_TOO_LARGE);
+        response.setStatusCode(HttpStatusCode.valueOf(413));
         response.getHeaders().setContentType(MediaType.parseMediaType(InboundRules.REJECTION_CONTENT_TYPE));
         DataBuffer body = response.bufferFactory().wrap(InboundRules.TOO_LARGE_BODY.getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(body));
-    }
-
-    private static byte[] toBytes(DataBuffer buffer, int maxBytes) {
-        try {
-            // join() hands a Mono back as it is, without applying its limit.
-            if (buffer.readableByteCount() > maxBytes) {
-                throw new DataBufferLimitException("Body larger than " + maxBytes + " bytes");
-            }
-            byte[] bytes = new byte[buffer.readableByteCount()];
-            buffer.read(bytes);
-            return bytes;
-        }
-        finally {
-            DataBufferUtils.release(buffer);
-        }
     }
 
     private static ServerHttpRequest withBody(ServerWebExchange exchange, ServerHttpRequest request, byte[] body) {

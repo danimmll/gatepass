@@ -7,7 +7,6 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
-import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -24,6 +23,7 @@ import io.github.danimmll.gatepass.Gatepass;
 import io.github.danimmll.gatepass.RequestParts;
 import io.github.danimmll.gatepass.Verdict;
 import io.github.danimmll.gatepass.Verification;
+import io.github.danimmll.gatepass.internal.BodyReader;
 import io.github.danimmll.gatepass.web.InboundRules;
 
 /**
@@ -34,8 +34,6 @@ import io.github.danimmll.gatepass.web.InboundRules;
  * handlers. When the pass covers the body, the body is read and checked here, and handed on from memory.
  */
 public class GatepassWebFilter implements WebFilter, Ordered {
-
-    private static final byte[] EMPTY = new byte[0];
 
     private final Gatepass gatepass;
 
@@ -84,12 +82,11 @@ public class GatepassWebFilter implements WebFilter, Ordered {
         if (!verification.coversBody()) {
             return chain.filter(exchange);
         }
-        if (request.getHeaders().getContentLength() > this.rules.maxBodyBytes()) {
+        long declaredLength = request.getHeaders().getContentLength();
+        if (declaredLength > this.rules.maxBodyBytes()) {
             return reject(exchange, Verdict.BODY_TOO_LARGE, method, rawPath, caller);
         }
-        return DataBufferUtils.join(request.getBody(), this.rules.maxBodyBytes())
-                .map(buffer -> toBytes(buffer, this.rules.maxBodyBytes()))
-                .defaultIfEmpty(EMPTY)
+        return BodyReader.read(request.getBody(), this.rules.maxBodyBytes(), declaredLength)
                 .map(Optional::of)
                 .onErrorResume(DataBufferLimitException.class, ex -> Mono.just(Optional.empty()))
                 .flatMap(body -> {
@@ -116,21 +113,6 @@ public class GatepassWebFilter implements WebFilter, Ordered {
         response.getHeaders().setContentType(MediaType.parseMediaType(InboundRules.REJECTION_CONTENT_TYPE));
         DataBuffer body = response.bufferFactory().wrap(InboundRules.body(verdict).getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(body));
-    }
-
-    private static byte[] toBytes(DataBuffer buffer, int maxBytes) {
-        try {
-            // join() hands a Mono back as it is, without applying its limit.
-            if (buffer.readableByteCount() > maxBytes) {
-                throw new DataBufferLimitException("Body larger than " + maxBytes + " bytes");
-            }
-            byte[] bytes = new byte[buffer.readableByteCount()];
-            buffer.read(bytes);
-            return bytes;
-        }
-        finally {
-            DataBufferUtils.release(buffer);
-        }
     }
 
     private static ServerHttpRequest withBody(ServerHttpRequest request, byte[] body) {

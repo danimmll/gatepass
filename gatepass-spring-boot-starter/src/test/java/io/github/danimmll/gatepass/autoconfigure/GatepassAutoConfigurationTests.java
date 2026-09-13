@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.cloud.gateway.server.mvc.filter.HttpHeadersFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -26,6 +27,9 @@ import io.github.danimmll.gatepass.client.GatepassClientHttpRequestInterceptor;
 import io.github.danimmll.gatepass.client.GatepassExchangeFilterFunction;
 import io.github.danimmll.gatepass.feign.GatepassFeignRequestInterceptor;
 import io.github.danimmll.gatepass.gateway.GatepassGatewayFilter;
+import io.github.danimmll.gatepass.gateway.mvc.GatepassBodyBufferingFilter;
+import io.github.danimmll.gatepass.gateway.mvc.GatepassGatewayMvcHeadersFilter;
+import io.github.danimmll.gatepass.gateway.mvc.GatepassLoadBalancerMarker;
 import io.github.danimmll.gatepass.reactive.GatepassWebFilter;
 import io.github.danimmll.gatepass.servlet.GatepassServletFilter;
 
@@ -35,8 +39,8 @@ class GatepassAutoConfigurationTests {
 
     private static final AutoConfigurations GATEPASS = AutoConfigurations.of(GatepassAutoConfiguration.class,
             GatepassServletAutoConfiguration.class, GatepassReactiveAutoConfiguration.class,
-            GatepassGatewayAutoConfiguration.class, GatepassHttpClientsAutoConfiguration.class,
-            GatepassFeignAutoConfiguration.class);
+            GatepassGatewayAutoConfiguration.class, GatepassGatewayMvcAutoConfiguration.class,
+            GatepassHttpClientsAutoConfiguration.class, GatepassFeignAutoConfiguration.class);
 
     private static final String SECRET = "gatepass.secrets[0]=" + TestSecrets.CURRENT;
 
@@ -46,18 +50,22 @@ class GatepassAutoConfigurationTests {
 
     private final ApplicationContextRunner plain = new ApplicationContextRunner().withConfiguration(GATEPASS);
 
-    // The gateway is an optional dependency of the starter, so it is on this test classpath. Hide it to look like
-    // an ordinary service.
+    // Both gateways are optional dependencies of the starter, so they are on this test classpath. Hide them to look
+    // like an ordinary service.
     private final WebApplicationContextRunner service = new WebApplicationContextRunner()
             .withConfiguration(GATEPASS)
-            .withClassLoader(new FilteredClassLoader(GlobalFilter.class));
+            .withClassLoader(new FilteredClassLoader(GlobalFilter.class, HttpHeadersFilter.class));
 
     private final ReactiveWebApplicationContextRunner reactiveService = new ReactiveWebApplicationContextRunner()
             .withConfiguration(GATEPASS)
-            .withClassLoader(new FilteredClassLoader(GlobalFilter.class));
+            .withClassLoader(new FilteredClassLoader(GlobalFilter.class, HttpHeadersFilter.class));
 
     private final ReactiveWebApplicationContextRunner gateway = new ReactiveWebApplicationContextRunner()
             .withConfiguration(GATEPASS);
+
+    private final WebApplicationContextRunner mvcGateway = new WebApplicationContextRunner()
+            .withConfiguration(GATEPASS)
+            .withClassLoader(new FilteredClassLoader(GlobalFilter.class));
 
     @Test
     void failsAtStartupWithNothingToSignOrVerifyWith() {
@@ -214,6 +222,33 @@ class GatepassAutoConfigurationTests {
     void aGatewayCannotSignBodiesInSharedSecretMode() {
         this.gateway.withPropertyValues(SECRET, "gatepass.mode=shared-secret", "gatepass.body.enabled=true")
                 .run(context -> assertFailedBecause(context, Reason.CONFLICTING_SETTINGS));
+    }
+
+    @Test
+    void aGatewayMvcIssuesPassesInsteadOfCheckingThem() {
+        this.mvcGateway.withPropertyValues(SECRET).run(context -> assertThat(context)
+                .hasSingleBean(GatepassGatewayMvcHeadersFilter.class)
+                .hasSingleBean(GatepassLoadBalancerMarker.class)
+                .doesNotHaveBean(GatepassBodyBufferingFilter.class)
+                .doesNotHaveBean(GatepassServletFilter.class));
+    }
+
+    @Test
+    void aGatewayMvcBuffersBodiesOnlyWhenItSignsThem() {
+        this.mvcGateway.withPropertyValues(SECRET, "gatepass.body.enabled=true")
+                .run(context -> assertThat(context).hasSingleBean(GatepassBodyBufferingFilter.class));
+    }
+
+    @Test
+    void aGatewayMvcWithNothingToSignWithFailsToStart() {
+        this.mvcGateway.withPropertyValues(TRUSTS_GATEWAY)
+                .run(context -> assertFailedBecause(context, Reason.CANNOT_ISSUE));
+    }
+
+    @Test
+    void gatewayMvcIssuingCanBeTurnedOff() {
+        this.mvcGateway.withPropertyValues(SECRET, "gatepass.gateway.enabled=false")
+                .run(context -> assertThat(context).doesNotHaveBean(GatepassGatewayMvcHeadersFilter.class));
     }
 
     @Test

@@ -13,7 +13,7 @@
 
     <artifactId>gatepass-integration-tests-gateway</artifactId>
     <name>Gatepass integration tests: Spring Cloud Gateway</name>
-    <description>A real gateway, with load balancing and route filters, in front of a plain HTTP backend.</description>
+    <description>A real Spring Cloud Gateway (WebFlux), with load balancing, retries and route filters, in front of a plain HTTP backend. -Pboot3 runs it on Spring Boot 3.</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -22,8 +22,8 @@
     <dependencies>
         <dependency>
             <groupId>io.github.danimmll</groupId>
-            <artifactId>gatepass-spring-boot-starter</artifactId>
-            <version>${project.version}</version>
+            <artifactId>gatepass-test-support</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
@@ -33,11 +33,45 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-loadbalancer</artifactId>
         </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux-test</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>boot4</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.github.danimmll</groupId>
+                    <artifactId>gatepass-spring-boot-starter</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-webflux-test</artifactId>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>boot3</id>
+            <properties>
+                <spring-boot.version>${spring-boot3.version}</spring-boot.version>
+                <spring-cloud.version>${spring-cloud3.version}</spring-cloud.version>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>io.github.danimmll</groupId>
+                    <artifactId>gatepass-spring-boot3-starter</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-test</artifactId>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

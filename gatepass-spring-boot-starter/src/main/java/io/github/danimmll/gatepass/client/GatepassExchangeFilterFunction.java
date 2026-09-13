@@ -4,7 +4,6 @@ import org.jspecify.annotations.Nullable;
 import org.reactivestreams.Publisher;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
-import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ClientHttpRequest;
 import org.springframework.http.client.reactive.ClientHttpRequestDecorator;
@@ -19,6 +18,7 @@ import reactor.core.publisher.Mono;
 import io.github.danimmll.gatepass.BodySigning;
 import io.github.danimmll.gatepass.Gatepass;
 import io.github.danimmll.gatepass.RequestParts;
+import io.github.danimmll.gatepass.internal.BodyReader;
 
 /**
  * Attaches a pass to the requests of a {@code WebClient}.
@@ -88,21 +88,6 @@ public class GatepassExchangeFilterFunction implements ExchangeFilterFunction {
         return next.exchange(ClientRequest.from(request).body(signing).build());
     }
 
-    private static byte[] toBytes(DataBuffer buffer, int maxBytes) {
-        try {
-            // join() hands a Mono back as it is, without applying its limit, and codecs write single values as one.
-            if (buffer.readableByteCount() > maxBytes) {
-                throw new DataBufferLimitException("Body larger than " + maxBytes + " bytes");
-            }
-            byte[] bytes = new byte[buffer.readableByteCount()];
-            buffer.read(bytes);
-            return bytes;
-        }
-        finally {
-            DataBufferUtils.release(buffer);
-        }
-    }
-
     /** Signs once the codecs have produced the body, right before the headers are sent. */
     private final class SigningRequest extends ClientHttpRequestDecorator {
 
@@ -119,12 +104,11 @@ public class GatepassExchangeFilterFunction implements ExchangeFilterFunction {
                 sign(null);
                 return super.writeWith(body);
             }
-            int maxBytes = GatepassExchangeFilterFunction.this.bodySigning.maxBytesAsInt();
-            return DataBufferUtils.join(body, maxBytes)
-                    .map(buffer -> toBytes(buffer, maxBytes))
+            BodySigning bodySigning = GatepassExchangeFilterFunction.this.bodySigning;
+            return BodyReader.read(body, bodySigning.maxBytes(), getHeaders().getContentLength())
                     .onErrorMap(DataBufferLimitException.class, ex -> new IllegalStateException("The request body is"
-                            + " over the " + maxBytes + " bytes Gatepass agrees to sign (gatepass.body.max-size)", ex))
-                    .defaultIfEmpty(EMPTY)
+                            + " over the " + bodySigning.maxBytes() + " bytes Gatepass agrees to sign"
+                            + " (gatepass.body.max-size)", ex))
                     .flatMap(bytes -> {
                         sign(bytes);
                         return super.writeWith(Mono.just(bufferFactory().wrap(bytes)));

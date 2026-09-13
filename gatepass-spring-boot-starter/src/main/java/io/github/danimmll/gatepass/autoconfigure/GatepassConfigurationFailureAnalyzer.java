@@ -14,8 +14,8 @@ class GatepassConfigurationFailureAnalyzer extends AbstractFailureAnalyzer<Gatep
     private static final String DISABLE_HINT = "\nTo start without Gatepass (in a test, for example), set"
             + " gatepass.enabled=false.";
 
-    private static final String KEY_GENERATOR_HINT = "java -jar gatepass-spring-boot-starter-<version>.jar prints a"
-            + " new key pair in the expected form.";
+    private static final String KEY_GENERATOR_HINT = "java -jar gatepass-core-<version>.jar prints a new key pair"
+            + " in the expected form.";
 
     @Override
     protected FailureAnalysis analyze(Throwable rootFailure, GatepassConfigurationException cause) {

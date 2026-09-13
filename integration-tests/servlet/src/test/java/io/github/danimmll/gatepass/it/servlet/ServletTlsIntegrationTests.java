@@ -13,6 +13,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import io.github.danimmll.gatepass.Gatepass;
 import io.github.danimmll.gatepass.RequestParts;
+import io.github.danimmll.gatepass.it.TestCertificates;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

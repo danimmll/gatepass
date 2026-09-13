@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>Gatepass (parent)</name>
-    <description>Build parent for Gatepass. Not published: the starter's POM is flattened on release.</description>
+    <description>Build parent for Gatepass. Not published: the POMs of the published modules are flattened.</description>
     <url>https://github.com/danimmll/gatepass</url>
 
     <licenses>
@@ -45,10 +45,17 @@
     </issueManagement>
 
     <modules>
+        <!-- Published -->
+        <module>gatepass-core</module>
         <module>gatepass-spring-boot-starter</module>
+        <module>gatepass-spring-boot3-starter</module>
+        <!-- Build only -->
+        <module>gatepass-test-support</module>
         <module>integration-tests/servlet</module>
         <module>integration-tests/reactive</module>
         <module>integration-tests/gateway</module>
+        <module>integration-tests/gateway-mvc</module>
+        <module>benchmarks</module>
     </modules>
 
     <properties>
@@ -56,9 +63,22 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <!-- The lowest supported versions. CI overrides them to test the newest ones too. -->
-        <spring-boot.version>4.0.8</spring-boot.version>
-        <spring-cloud.version>2025.1.3</spring-cloud.version>
+        <!--
+          Each Spring Boot line has its own properties, so CI can move one without touching the other:
+          -Dspring-boot4.version=4.1.1 only changes what the Spring Boot 4 modules build against.
+          The lowest supported versions are the defaults.
+        -->
+        <spring-boot4.version>4.0.8</spring-boot4.version>
+        <spring-cloud4.version>2025.1.3</spring-cloud4.version>
+        <spring-boot3.version>3.5.16</spring-boot3.version>
+        <spring-cloud3.version>2025.0.3</spring-cloud3.version>
+
+        <!-- What a module builds against. The Spring Boot 3 modules point these at the Spring Boot 3 line. -->
+        <spring-boot.version>${spring-boot4.version}</spring-boot.version>
+        <spring-cloud.version>${spring-cloud4.version}</spring-cloud.version>
+
+        <jspecify.version>1.0.0</jspecify.version>
+        <jmh.version>1.37</jmh.version>
 
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
@@ -68,12 +88,34 @@
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <maven-deploy-plugin.version>3.1.4</maven-deploy-plugin.version>
+        <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
+        <build-helper-maven-plugin.version>3.6.2</build-helper-maven-plugin.version>
         <flatten-maven-plugin.version>1.8.0</flatten-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.github.danimmll</groupId>
+                <artifactId>gatepass-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.danimmll</groupId>
+                <artifactId>gatepass-test-support</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <artifactId>jspecify</artifactId>
+                <version>${jspecify.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-core</artifactId>
+                <version>${jmh.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -136,9 +178,43 @@
                     <version>${maven-deploy-plugin.version}</version>
                 </plugin>
                 <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>${maven-shade-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>${build-helper-maven-plugin.version}</version>
+                </plugin>
+                <!--
+                  Published modules get a self-contained POM: no reference to gatepass-parent, versions resolved.
+                  That way the parent never has to be published.
+                -->
+                <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>flatten-maven-plugin</artifactId>
                     <version>${flatten-maven-plugin.version}</version>
+                    <configuration>
+                        <flattenMode>ossrh</flattenMode>
+                        <updatePomFile>true</updatePomFile>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>flatten</id>
+                            <phase>process-resources</phase>
+                            <goals>
+                                <goal>flatten</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>flatten-clean</id>
+                            <phase>clean</phase>
+                            <goals>
+                                <goal>clean</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.sonatype.central</groupId>
@@ -174,4 +250,73 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          ./mvnw -P release deploy -pl gatepass-core,gatepass-spring-boot-starter,gatepass-spring-boot3-starter
+          Only the modules named with -pl are signed and uploaded.
+        -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <configuration>
+                            <doclint>all,-missing</doclint>
+                            <!--
+                              Classpath only. On the module path, the servlet API and the copy of it inside Tomcat,
+                              which Gateway Server MVC brings along, clash as a split package.
+                            -->
+                            <legacyMode>true</legacyMode>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>false</autoPublish>
+                            <waitUntil>validated</waitUntil>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

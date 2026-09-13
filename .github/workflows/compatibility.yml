@@ -1,0 +1,51 @@
+name: Compatibility
+
+# Every week, builds and tests against the newest Spring Boot and Spring Cloud releases, so a new release that breaks
+# Gatepass shows up here before anyone reports it. CI keeps testing the versions Gatepass declares support for.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  newest-releases:
+    name: Newest Spring Boot and Spring Cloud releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Find the newest releases
+        id: versions
+        run: |
+          newest() {
+            curl -fsS "https://repo1.maven.org/maven2/$1/maven-metadata.xml" \
+              | grep -o '<version>[^<]*</version>' | sed 's/<[^>]*>//g' | grep -E "$2" | sort -V | tail -1
+          }
+          {
+            echo "boot4=$(newest org/springframework/boot/spring-boot-dependencies '^4\.[0-9]+\.[0-9]+$')"
+            echo "cloud4=$(newest org/springframework/cloud/spring-cloud-dependencies '^20[0-9]{2}\.[0-9]+\.[0-9]+$')"
+            echo "boot3=$(newest org/springframework/boot/spring-boot-dependencies '^3\.5\.[0-9]+$')"
+            echo "cloud3=$(newest org/springframework/cloud/spring-cloud-dependencies '^2025\.0\.[0-9]+$')"
+          } | tee -a "$GITHUB_OUTPUT"
+      - name: Spring Boot 4 line
+        run: >-
+          ./mvnw -B -ntp verify -pl '!gatepass-spring-boot3-starter'
+          -Dspring-boot4.version=${{ steps.versions.outputs.boot4 }}
+          -Dspring-cloud4.version=${{ steps.versions.outputs.cloud4 }}
+        env:
+          # A Spring Cloud train refuses to start on a Spring Boot release newer than the ones it was released for.
+          SPRING_CLOUD_COMPATIBILITY_VERIFIER_ENABLED: 'false'
+      - name: Spring Boot 3 line
+        if: ${{ !cancelled() }}
+        run: >-
+          ./mvnw -B -ntp verify -Pboot3
+          -pl gatepass-test-support,gatepass-core,gatepass-spring-boot3-starter,integration-tests/servlet,integration-tests/reactive,integration-tests/gateway,integration-tests/gateway-mvc
+          -Dspring-boot3.version=${{ steps.versions.outputs.boot3 }}
+          -Dspring-cloud3.version=${{ steps.versions.outputs.cloud3 }}

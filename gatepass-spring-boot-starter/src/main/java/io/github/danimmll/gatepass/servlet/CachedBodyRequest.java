@@ -2,7 +2,6 @@ package io.github.danimmll.gatepass.servlet;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
@@ -15,12 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 
 import org.jspecify.annotations.Nullable;
+
+import io.github.danimmll.gatepass.internal.ByteArrayServletInputStream;
 
 /**
  * A request whose body has already been read and checked, handed on from memory.
@@ -42,7 +42,7 @@ final class CachedBodyRequest extends HttpServletRequestWrapper {
 
     @Override
     public ServletInputStream getInputStream() {
-        return new BodyInputStream(new ByteArrayInputStream(this.body));
+        return new ByteArrayServletInputStream(this.body);
     }
 
     @Override
@@ -97,6 +97,7 @@ final class CachedBodyRequest extends HttpServletRequestWrapper {
 
     private void parseForm(Map<String, List<String>> into) {
         Charset charset = charset();
+        // ISO-8859-1 maps bytes to chars one to one, so the percent-escapes survive until they are decoded.
         for (String pair : new String(this.body, StandardCharsets.ISO_8859_1).split("&")) {
             if (pair.isEmpty()) {
                 continue;
@@ -111,13 +112,11 @@ final class CachedBodyRequest extends HttpServletRequestWrapper {
     }
 
     private static String decode(String value, Charset charset) {
-        // The body was split as ISO-8859-1, which maps bytes to chars one to one; turn them back into bytes first.
-        String bytesAsText = new String(value.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.ISO_8859_1);
         try {
-            return URLDecoder.decode(bytesAsText, charset);
+            return URLDecoder.decode(value, charset);
         }
         catch (IllegalArgumentException ex) {
-            return bytesAsText;
+            return value;
         }
     }
 
@@ -132,52 +131,6 @@ final class CachedBodyRequest extends HttpServletRequestWrapper {
             }
         }
         return StandardCharsets.ISO_8859_1;
-    }
-
-    private static final class BodyInputStream extends ServletInputStream {
-
-        private final ByteArrayInputStream body;
-
-        private BodyInputStream(ByteArrayInputStream body) {
-            this.body = body;
-        }
-
-        @Override
-        public boolean isFinished() {
-            return this.body.available() == 0;
-        }
-
-        @Override
-        public boolean isReady() {
-            return true;
-        }
-
-        @Override
-        public void setReadListener(ReadListener listener) {
-            try {
-                listener.onDataAvailable();
-                listener.onAllDataRead();
-            }
-            catch (IOException ex) {
-                listener.onError(ex);
-            }
-        }
-
-        @Override
-        public int read() {
-            return this.body.read();
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int length) {
-            return this.body.read(buffer, offset, length);
-        }
-
-        @Override
-        public int available() {
-            return this.body.available();
-        }
-
     }
 
 }

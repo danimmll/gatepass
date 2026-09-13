@@ -103,8 +103,8 @@ public final class InboundRules {
      *
      * @return the limit, in bytes
      */
-    public int maxBodyBytes() {
-        return (int) this.maxBodyBytes;
+    public long maxBodyBytes() {
+        return this.maxBodyBytes;
     }
 
     /**

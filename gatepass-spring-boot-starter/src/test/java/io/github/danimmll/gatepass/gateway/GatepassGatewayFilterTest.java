@@ -10,7 +10,7 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.route.Route;
 import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -75,7 +75,7 @@ class GatepassGatewayFilterTest {
 
         filter(List.of()).filter(exchange, this.chain).block();
 
-        assertThat(this.forwarded.get().getRequest().getHeaders().containsHeader("X-Gatepass")).isFalse();
+        assertThat(this.forwarded.get().getRequest().getHeaders().getFirst("X-Gatepass")).isNull();
     }
 
     @Test
@@ -144,7 +144,7 @@ class GatepassGatewayFilterTest {
         signingBodies(4).filter(exchange, this.chain).block();
 
         assertThat(this.forwarded.get()).isNull();
-        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatusCode.valueOf(413));
     }
 
     @Test

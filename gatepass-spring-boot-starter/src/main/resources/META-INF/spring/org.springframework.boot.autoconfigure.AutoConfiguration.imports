@@ -2,5 +2,6 @@ io.github.danimmll.gatepass.autoconfigure.GatepassAutoConfiguration
 io.github.danimmll.gatepass.autoconfigure.GatepassServletAutoConfiguration
 io.github.danimmll.gatepass.autoconfigure.GatepassReactiveAutoConfiguration
 io.github.danimmll.gatepass.autoconfigure.GatepassGatewayAutoConfiguration
+io.github.danimmll.gatepass.autoconfigure.GatepassGatewayMvcAutoConfiguration
 io.github.danimmll.gatepass.autoconfigure.GatepassHttpClientsAutoConfiguration
 io.github.danimmll.gatepass.autoconfigure.GatepassFeignAutoConfiguration

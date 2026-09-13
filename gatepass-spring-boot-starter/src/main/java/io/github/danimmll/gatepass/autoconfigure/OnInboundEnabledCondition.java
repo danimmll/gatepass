@@ -10,11 +10,14 @@ import org.springframework.util.ClassUtils;
 
 /**
  * Honours {@code gatepass.inbound.enabled} when set. When it is not, checks passes everywhere except inside a
- * Spring Cloud Gateway: the gateway receives traffic from the outside world, which by definition has no pass.
+ * Spring Cloud Gateway, WebFlux or MVC: the gateway receives traffic from the outside world, which by definition has
+ * no pass.
  */
 class OnInboundEnabledCondition extends SpringBootCondition {
 
     static final String GATEWAY_CLASS = "org.springframework.cloud.gateway.filter.GlobalFilter";
+
+    static final String GATEWAY_MVC_CLASS = "org.springframework.cloud.gateway.server.mvc.filter.HttpHeadersFilter";
 
     @Override
     public ConditionOutcome getMatchOutcome(ConditionContext context, AnnotatedTypeMetadata metadata) {
@@ -27,7 +30,8 @@ class OnInboundEnabledCondition extends SpringBootCondition {
                     ? ConditionOutcome.match(message.because("gatepass.inbound.enabled is true"))
                     : ConditionOutcome.noMatch(message.because("gatepass.inbound.enabled is false"));
         }
-        if (ClassUtils.isPresent(GATEWAY_CLASS, context.getClassLoader())) {
+        ClassLoader classLoader = context.getClassLoader();
+        if (ClassUtils.isPresent(GATEWAY_CLASS, classLoader) || ClassUtils.isPresent(GATEWAY_MVC_CLASS, classLoader)) {
             return ConditionOutcome.noMatch(message.because(
                     "Spring Cloud Gateway is present, and a gateway issues passes rather than checking them"));
         }

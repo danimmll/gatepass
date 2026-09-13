@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Build plugins and test tooling. Spring Boot and Spring Cloud versions are the lowest supported ones on purpose;
+  # the Compatibility workflow tests the newest releases every week instead.
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "org.springframework.boot:*"
+      - dependency-name: "org.springframework.cloud:*"
+    groups:
+      build-plugins:
+        patterns:
+          - "org.apache.maven.plugins:*"
+          - "org.codehaus.mojo:*"
+          - "org.sonatype.central:*"

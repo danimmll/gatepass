@@ -1,7 +1,7 @@
 name: Release
 
-# Push a tag such as v0.1.0 whose number matches the version in the POMs. The bundle is uploaded and validated
-# on the Central Portal but not published: that last click stays manual (see RELEASING.md).
+# Push a tag such as v0.1.0 whose number matches the version in the POMs. gatepass-core and both starters are
+# uploaded and validated on the Central Portal, but not published: that last click stays manual (see RELEASING.md).
 on:
   push:
     tags: [ 'v*' ]
@@ -31,10 +31,16 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match project version $version" >&2
             exit 1
           fi
-      - name: Build and test everything
-        run: ./mvnw -B -ntp verify
-      - name: Upload the starter to Maven Central
-        run: ./mvnw -B -ntp -P release -pl gatepass-spring-boot-starter deploy
+      - name: Build and test on Spring Boot 4
+        run: ./mvnw -B -ntp install
+      - name: Test on Spring Boot 3
+        run: >-
+          ./mvnw -B -ntp verify -Pboot3
+          -pl gatepass-spring-boot3-starter,integration-tests/servlet,integration-tests/reactive,integration-tests/gateway,integration-tests/gateway-mvc
+      - name: Upload gatepass-core and both starters to Maven Central
+        run: >-
+          ./mvnw -B -ntp -P release deploy -Dmaven.test.skip=true
+          -pl gatepass-core,gatepass-spring-boot-starter,gatepass-spring-boot3-starter
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}

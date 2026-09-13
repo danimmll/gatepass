@@ -8,6 +8,7 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.SslInfo;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
@@ -153,8 +154,8 @@ class GatepassWebFilterTest {
         small.filter(declared, this.chain).block();
 
         assertThat(this.handled.get()).isNull();
-        assertThat(undeclared.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
-        assertThat(declared.getResponse().getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
+        assertThat(undeclared.getResponse().getStatusCode()).isEqualTo(HttpStatusCode.valueOf(413));
+        assertThat(declared.getResponse().getStatusCode()).isEqualTo(HttpStatusCode.valueOf(413));
         assertThat(declared.getResponse().getBodyAsString().block()).isEqualTo(InboundRules.TOO_LARGE_BODY);
     }
 
@@ -168,9 +169,10 @@ class GatepassWebFilterTest {
         tlsOnly.filter(forwarded, this.chain).block();
         assertThat(forwarded.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 
-        MockServerWebExchange overTls = MockServerWebExchange.from(MockServerHttpRequest.get("/orders")
-                .sslInfo(new TestSslInfo())
-                .header("X-Gatepass", this.gatepass.issue(RequestParts.of("GET", "/orders", null))));
+        MockServerHttpRequest.BaseBuilder<?> overTlsRequest = MockServerHttpRequest.get("/orders")
+                .header("X-Gatepass", this.gatepass.issue(RequestParts.of("GET", "/orders", null)));
+        overTlsRequest.sslInfo(new TestSslInfo()); // returns void before Spring Framework 7, so no chaining
+        MockServerWebExchange overTls = MockServerWebExchange.from(overTlsRequest);
         tlsOnly.filter(overTls, this.chain).block();
         assertThat(this.handled.get()).isSameAs(overTls);
     }

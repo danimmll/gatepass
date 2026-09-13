@@ -100,11 +100,11 @@ public class GatepassServletFilter extends OncePerRequestFilter implements Order
     }
 
     private byte @Nullable [] readBody(HttpServletRequest request) throws IOException {
-        int limit = this.rules.maxBodyBytes();
+        long limit = this.rules.maxBodyBytes();
         if (request.getContentLengthLong() > limit) {
             return null;
         }
-        byte[] body = request.getInputStream().readNBytes(limit + 1);
+        byte[] body = request.getInputStream().readNBytes((int) Math.min(limit + 1, Integer.MAX_VALUE));
         return (body.length > limit) ? null : body;
     }
 
