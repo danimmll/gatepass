@@ -1,0 +1,2 @@
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+io.github.danimmll.gatepass.autoconfigure.GatepassConfigurationFailureAnalyzer
